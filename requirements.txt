@@ -1,0 +1,9 @@
+# Global dependencies
+openai
+python-dotenv
+rich
+requests
+urllib
+
+# For Compilation Only
+pyinstaller
