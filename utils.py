@@ -89,7 +89,7 @@ def generate_dalle2(prompt, batches, additional_parameters):
 
 DATA_FOLDER = "ImagineSuiteData"
 GENERATIONS_FOLDER = f"{DATA_FOLDER}/Generations"
-VERSION = "v1.0.0"
+VERSION = "v1.0.1"
 DEFAULT_CONFIG = {
     "BATCH_SIZE" : {
         "value" : 3,
@@ -415,37 +415,53 @@ def clean_config_file(console, verbose = False):
                 else:
                     try:
                         if type(loaded_config[key]['value']) != type(DEFAULT_CONFIG[key]['value']):
-                            if verbose: debug(f"Config rule '{key}'s value is corrupted! Restoring to default.", level="error", console=console)
+                            if verbose: 
+                                debug(f"Config rule '{key}'s value is corrupted! Restoring to default.", level="error", console=console)
+                                time.sleep(1)
                             changed = True
                             loaded_config[key]['value'] = DEFAULT_CONFIG[key]['value']
                         if loaded_config[key]['description'] != DEFAULT_CONFIG[key]['description']:
-                            if verbose: debug(f"Config rule '{key}'s description is corrupted! Restoring to default.", level="error", console=console) 
+                            if verbose: 
+                                debug(f"Config rule '{key}'s description is corrupted! Restoring to default.", level="error", console=console) 
+                                time.sleep(1)
                             changed = True
                             loaded_config[key]['description'] = DEFAULT_CONFIG[key]['description']
                         if DEFAULT_CONFIG[key].get('min_value'):
                             if loaded_config[key]['min_value'] != DEFAULT_CONFIG[key]['min_value']:
-                                if verbose: debug(f"Config rule '{key}'s minimum value is corrupted! Restoring to default.", level="error", console=console) 
+                                if verbose: 
+                                    debug(f"Config rule '{key}'s minimum value is corrupted! Restoring to default.", level="error", console=console) 
+                                    time.sleep(1)
                                 changed = True
                                 loaded_config[key]['min_value'] = DEFAULT_CONFIG[key]['min_value']
                             if loaded_config[key]['value'] < DEFAULT_CONFIG[key]['min_value']:
-                                if verbose: debug(f"Config rule '{key}'s value is below minimum! Restoring to default.", level="error", console=console) 
+                                if verbose: 
+                                    debug(f"Config rule '{key}'s value is below minimum! Restoring to default.", level="error", console=console)
+                                    time.sleep(1) 
                                 changed = True
                                 loaded_config[key]['value'] = DEFAULT_CONFIG[key]['value']
                         if DEFAULT_CONFIG[key].get('max_value'):
                             if loaded_config[key]['max_value'] != DEFAULT_CONFIG[key]['max_value']:
-                                if verbose: debug(f"Config rule '{key}'s maximum value is corrupted! Restoring to default.", level="error", console=console) 
+                                if verbose: 
+                                    debug(f"Config rule '{key}'s maximum value is corrupted! Restoring to default.", level="error", console=console)
+                                    time.sleep(1)
                                 changed = True
                                 loaded_config[key]['max_value'] = DEFAULT_CONFIG[key]['max_value']
                             if loaded_config[key]['value'] > DEFAULT_CONFIG[key]['max_value']:
-                                if verbose: debug(f"Config rule '{key}'s value is above maximum! Restoring to default.", level="error", console=console) 
+                                if verbose: 
+                                    debug(f"Config rule '{key}'s value is above maximum! Restoring to default.", level="error", console=console)
+                                    time.sleep(1) 
                                 changed = True
                                 loaded_config[key]['value'] = DEFAULT_CONFIG[key]['value']
                     except:
-                        if verbose: debug(f"Config rule '{key}' corrupted! Restoring to default.", level="error", console=console)
+                        if verbose: 
+                            debug(f"Config rule '{key}' corrupted! Restoring to default.", level="error", console=console)
+                            time.sleep(1)
                         changed = True
                         loaded_config[key] = DEFAULT_CONFIG[key]           
     else:
-        if verbose: debug("Config file corrupted! Restoring to default.", level="error", console=console)
+        if verbose: 
+            debug("Config file corrupted! Restoring to default.", level="error", console=console)
+            time.sleep(1)
         changed = True
         with open(config_path, 'w') as f: json.dump(DEFAULT_CONFIG, f)
         loaded_config = DEFAULT_CONFIG
