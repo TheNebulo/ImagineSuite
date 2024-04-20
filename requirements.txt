@@ -4,6 +4,7 @@ python-dotenv
 rich
 requests
 urllib
+packaging
 
 # For Compilation Only
 pyinstaller

@@ -1,95 +1,18 @@
-import sys, os, time, openai, requests, json, asyncio, base64
+import data
+import sys, os, time, requests, json, base64, tempfile
 from downloader import download
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 from rich.prompt import Prompt, Confirm
+from packaging import version
 
-def run_async_as_sync(async_function):
-    return asyncio.get_event_loop().run_until_complete(async_function)
 
-def verify_openai(api_key):
-    client = openai.OpenAI(api_key=api_key)
-    try: client.embeddings.create(input="", model="text-embedding-3-small")
-    except openai.APIConnectionError as e: return "network"
-    except: return "invalid"
-    else: return "valid"
-
-def generate_dalle3(prompt, batches, additional_parameters):
-    
-    response_format = "b64_json"
-    
-    client = openai.AsyncOpenAI(api_key=SERVICES["OPENAI"]["api_key"])
-    if additional_parameters['aspect_ratio']['value'] == "square": additional_parameters['aspect_ratio']['value'] = "1024x1024"
-    if additional_parameters['aspect_ratio']['value'] == "landscape": additional_parameters['aspect_ratio']['value'] = "1792x1024"
-    if additional_parameters['aspect_ratio']['value'] == "portrait": additional_parameters['aspect_ratio']['value'] = "1024x1792"
-    
-    for i, batch in enumerate(batches):
-        yield {"message": f"Generating batch #{i+1} with {batch} image(s)...", "value":None, "type":"log", "level":None}
-        
-        async def get_image(prompt, size, quality, style, response_format = "b64_json"):
-            response = await client.images.generate(
-                model="dall-e-3",
-                prompt=prompt,
-                size=size,
-                quality=quality,
-                style=style,
-                response_format=response_format,
-                n=1
-            )
-            if response_format == "url": image = response.data[0].url
-            else: image = response.data[0].b64_json
-            return image
-
-        tasks = [get_image(prompt, additional_parameters['aspect_ratio']['value'], additional_parameters['quality']['value'], additional_parameters['style']['value'], response_format=response_format) for _ in range(batch)]
-        try: images = run_async_as_sync(asyncio.gather(*tasks))
-        except openai.AuthenticationError as e:
-            yield {"message": f"The API key for OpenAI is incorrect.", "value":e, "type":"error", "level":"critical"}
-        except openai.BadRequestError as e:
-            yield {"message": f"Provided prompt was rejected by OpenAI.", "value":e, "type":"error", "level":"critical"}
-        except openai.RateLimitError as e:
-            yield {"message": f"Too many requests sent to OpenAI. Please wait and try again later.", "value":e, "type":"error", "level":"critical"}
-        except Exception as e:
-            yield {"message": "Unknown error.", "value":e, "type":"error", "level":"warn"}
-        else:
-            yield {"message": f"Successfully generated batch #{i+1}!", "value": images, "type":response_format, "level": None}
-            
-def generate_dalle2(prompt, batches, additional_parameters):
-    
-    response_format = "b64_json"
-    
-    client = openai.AsyncOpenAI(api_key=SERVICES["OPENAI"]["api_key"])
-    
-    for i, batch in enumerate(batches):
-        yield {"message": f"Generating batch #{i+1} with {batch} image(s)...", "value":None, "type":"log", "level":None}
-        
-        async def get_image(prompt, response_format = "b64_json"):
-            response = await client.images.generate(
-                model="dall-e-2",
-                prompt=prompt,
-                size="1024x1024",
-                response_format=response_format
-            )
-            if response_format == "url": image = response.data[0].url
-            else: image = response.data[0].b64_json
-            return image
-
-        tasks = [get_image(prompt, response_format=response_format) for _ in range(batch)]
-        try: images = run_async_as_sync(asyncio.gather(*tasks))
-        except openai.AuthenticationError as e:
-            yield {"message": f"The API key for OpenAI is incorrect.", "value":e, "type":"error", "level":"critical"}
-        except openai.BadRequestError as e:
-            yield {"message": f"Provided prompt was rejected by OpenAI.", "value":e, "type":"error", "level":"critical"}
-        except openai.RateLimitError as e:
-            yield {"message": f"Too many requests sent to OpenAI. Please wait and try again later.", "value":e, "type":"error", "level":"critical"}
-        except Exception as e:
-            yield {"message": "Unknown error.", "value":e, "type":"error", "level":"warn"}
-        else:
-            yield {"message": f"Successfully generated batch #{i+1}!", "value": images, "type":response_format, "level": None}
-
-DATA_FOLDER = "ImagineSuiteData"
-GENERATIONS_FOLDER = f"{DATA_FOLDER}/Generations"
-VERSION = "v1.0.1"
+DATA_FOLDER = f"{tempfile.gettempdir()}\\ImagineSuiteData"
+GENERATIONS_FOLDER = f"{DATA_FOLDER}\\Generations"
+VERSION = "v1.1.0"
+RELEASE_LINK = "https://github.com/TheNebulo/ImagineSuite/releases/latest"
+FILE_NAME = "ImagineSuite.exe"
 DEFAULT_CONFIG = {
     "BATCH_SIZE" : {
         "value" : 3,
@@ -114,6 +37,7 @@ DEFAULT_CONFIG = {
         "description" : "Whether to force verify all entered API keys."
     }
 }
+
 EMOJIS = {
     "success" : ":white_heavy_check_mark:",
     "warning" : ":construction:",
@@ -121,41 +45,8 @@ EMOJIS = {
     "error" : ":x:",
     "update" : ":package:"
 }
-SERVICES = {
-    "OPENAI" : {
-        "api_key" : None,
-        "required" : True,
-        "alias" : "OpenAI",
-        "description" : "The [bold]OpenAI[/bold] platform providing Dall-E 2 and 3.",
-        "link" : "https://platform.openai.com/api-keys",
-        "models" : [
-            {
-                "name" : "dalle-3",
-                "alias" : "Dall-E 3",
-                "online_only" : True,
-                "description" : "(Recommended) OpenAI's flagship image generator that trades affordability for a wide array of generation features.",
-                "additional_parameters" : [
-                    {"name" : "aspect_ratio", "alias" : "Aspect Ratio", "description" : "The aspect ratio/format of the generated image(s).", "default" : "square", "options" : ["square", "landscape", "portrait"]},
-                    {"name" : "quality", "alias" : "Quality", "description" : "The quality of the image. Affects attention to detail, not resolution.", "default" : "standard", "options" : ["hd", "standard"]},
-                    {"name" : "style", "alias" : "Style", "description" : "The style of the image. Vivid images are more dramatic and hyper-real than natural images.", "default" : "vivid", "options" : ["vivid", "natural"]}
-                ],
-                "generate_function" : generate_dalle3
-            },
-            {
-                "name" : "dalle-2",
-                "alias" : "Dall-E 2",
-                "online_only" : True,
-                "description" : "An older image generator that provides faster and cheaper but lower quality image generation.",
-                "additional_parameters" : None,
-                "generate_function" : generate_dalle2
-            },
-        ],
-        "always_verify" : False,
-        "verification_function" : verify_openai
-    }
-}
-RELEASE_LINK = "https://github.com/TheNebulo/ImagineSuite/releases/latest"
-FILE_NAME = "ImagineSuite.exe"
+
+SERVICES = data.SERVICES
 
 last_known_online = True
 
@@ -260,12 +151,15 @@ def initial_launch_exe():
 def is_exe():
     if initial_launch_exe(): return True
     return initial_launch_exe() or os.environ.get('RUNNING_AS_EXE', '0') == '1'
-
+    
 def is_latest():
     response = requests.get(RELEASE_LINK)
     latest_version = response.url.split("/").pop()
-    if VERSION == latest_version: return True
-    else: return latest_version
+
+    current_ver = version.parse(VERSION.lstrip('v'))
+    latest_ver = version.parse(latest_version.lstrip('v'))
+
+    return current_ver >= latest_ver
     
 def restart():
     clear_console(header=False)
@@ -350,11 +244,11 @@ def clean_env_file():
         for key, value in env_dict.items():
             if value:
                 file.write(f'{key}={value}\n')
-            
+
 
     
 def edit_or_add_env_value(key_to_edit, new_value):
-    env_path = DATA_FOLDER+"/.env"
+    env_path = DATA_FOLDER + "/.env"
     clean_env_file()
 
     with open(env_path, 'r') as file:
@@ -366,8 +260,12 @@ def edit_or_add_env_value(key_to_edit, new_value):
         if line and not line.startswith('#'):
             k, v = line.split('=', 1)
             env_dict[k.strip()] = v.strip().strip('\'"')
-
-    env_dict[key_to_edit] = new_value
+    
+    if new_value is None:
+        if key_to_edit in env_dict:
+            del env_dict[key_to_edit]
+    else:
+        env_dict[key_to_edit] = new_value
 
     with open(env_path, 'w') as file:
         for key, value in env_dict.items():

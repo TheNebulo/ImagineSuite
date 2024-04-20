@@ -9,15 +9,23 @@ loaded_config = new_data = None
 def initialise_data():
     env_path = utils.DATA_FOLDER+"/.env"
     
-    utils.clear_console()
+    utils.clear_console(console=console)
 
     with console.status("[bold green] Launching ImagineSuite...", spinner="arc"):
         time.sleep(1)
         
         if os.path.exists(f"{utils.DATA_FOLDER}/temp.exe"):
             os.remove(f"{utils.DATA_FOLDER}/temp.exe")
-            utils.debug(f"Successfully updated ImagineSuite to {utils.VERSION}!", level="update")
+            utils.debug(f"Successfully updated ImagineSuite to {utils.VERSION}!", level="update", console=console)
             time.sleep(1)
+            
+        if os.path.exists(f"ImagineSuiteData") and not os.path.exists(utils.DATA_FOLDER):
+            utils.debug("Migrating data folder to new location.", level="debug", console=console)
+            time.sleep(1)
+            try: shutil.move("ImagineSuiteData", utils.DATA_FOLDER)
+            except: 
+                utils.debug("Failed to migrate old data folder.", level="error", console=console)
+                time.sleep(1)
             
         if not utils.is_online():
             utils.debug("Failed to connect establish internet connection. Functionality will be severly limited.", level="warning", console=console)
@@ -65,10 +73,11 @@ def initialise_data():
 def critical_error(desc):
     utils.clear_console(console=console)
     utils.print("[bold]Critical error occurred![/bold]", level="error", console=console)
-    utils.print(f"Developer Info: {desc}", level="debug", console=console)
-    utils.print("Restarting ImagineSuite...", console=console)
-    time.sleep(3)
-    utils.restart()
+    utils.print(f"Developer Info: {desc}", level="debug", console=console, highlight=False)
+    choice = utils.prompt_input(f"Choose what to do next", choices=["restart", "quit"])
+    utils.clear_console(console=console, header=False)
+    if choice == "restart": utils.restart()
+    else: sys.exit()
     
 def edit_config(key):
     utils.clear_console(console=console)
@@ -180,11 +189,12 @@ def verify_key(key, can_quit=False):
     if utils.SERVICES[key]['link']:
         description = f"{description} You can get your API key at [link={utils.SERVICES[key]['link']}]{utils.SERVICES[key]['link']}[/link]."
     required_verification = loaded_config['ALWAYS_VERIFY_KEYS']['value'] or utils.SERVICES[key]['always_verify']
+    can_verify = (utils.SERVICES[key]['verification_function'] != None)
     verify = True
     while verify:
         utils.clear_console(console=console)
         utils.print(f"[bold]Currently asking for:[/bold] {alias} API key.", console=console)
-        utils.print(f"[bold]Description:[/bold] {description}", console=console)
+        utils.print(f"[bold]Description:[/bold] {description}", highlight=False, console=console)
         if can_quit: api_key = utils.prompt_input(f"Enter your {alias} API key (enter back to go back)").strip()
         else: api_key = utils.prompt_input(f"Enter your {alias} API key").strip()
         if can_quit and api_key == "back": return
@@ -193,6 +203,11 @@ def verify_key(key, can_quit=False):
             time.sleep(2)
             verify_key(key, can_quit)
             return
+        if not can_verify:
+            verify = False
+            utils.clear_console(console=console)
+            with console.status(f"[bold green] Verifying key is unavailable. Continuing...", spinner="point"): time.sleep(2)
+            break
         if not required_verification:
             verify = utils.confirm_input("Would you like to verify the validity of this key")
         if verify:
@@ -246,9 +261,35 @@ def edit_services(required_api_keys=None):
         utils.print(table, console=console)
         selection = utils.prompt_input("Enter a number for the service you want to edit", choices=[str(x+1) for x in range(len(available_keys))] + ["back"])
         if selection == "back": return
-        verify_key(list(utils.SERVICES.keys())[int(selection)-1], can_quit=True)
+        verify_key(available_keys[int(selection)-1], can_quit=True)
     edit_services(required_api_keys)
-        
+    
+def remove_service():
+    utils.clear_console(console=console)
+    available_keys = [key for key in filter(lambda x: utils.SERVICES[x]['api_key'] != None and not utils.SERVICES[x]['required'], utils.SERVICES.keys())]
+    if len(available_keys) == 0:    
+        utils.print("[bold]No removable services found![/bold]", level="error")
+        utils.print("Missing services can be added in the 'settings/services' menu.")
+        utils.prompt_input("Press enter to continue")
+        return
+    table = Table(title="Removeable Services", title_justify="left")
+    table.add_column("No.", justify="right", style="cyan")
+    table.add_column("Name", style="magenta")
+    table.add_column("API Key", justify="right", style="green")
+    for i, key in enumerate(available_keys):
+        table.add_row(str(i+1), utils.SERVICES[key]['alias'], utils.SERVICES[key]['api_key'])
+    utils.print(table, console=console)
+    selection = utils.prompt_input("Enter a number for the service you want to remove", choices=[str(x+1) for x in range(len(available_keys))] + ["back"])
+    if selection == "back": return
+    key = available_keys[int(selection)-1]
+    utils.clear_console(console=console)
+    if utils.confirm_input(f"[bold]Are you sure you want to remove the '{utils.SERVICES[key]['alias']}' service?[/bold]"):
+        utils.SERVICES[key]['api_key'] = None 
+        utils.edit_or_add_env_value(key, None)
+        utils.clear_console(console=console)
+        utils.print("[bold]Successfully removed service![/bold]", level='success', console=console)
+        time.sleep(2)
+    remove_service()
     
 def add_services():
     utils.clear_console(console=console)
@@ -277,13 +318,13 @@ def add_services():
         if selection == "back": return
         verify_key(missing_api_keys[int(selection)-1], can_quit=True)
     add_services()
-        
     
 def services_menu():
     utils.clear_console(console=console)
-    choice = utils.prompt_input("What would you like to do with image generation services?", choices=["add","edit", "back"])
+    choice = utils.prompt_input("What would you like to do with image generation services?", choices=["add","edit", "remove", "back"])
     if choice == "add": add_services()
     if choice == "edit": edit_services()
+    if choice == "remove": remove_service()
     if choice == 'back': return
     services_menu()
 
@@ -295,13 +336,13 @@ def update_app_menu():
         return
     try: latest = utils.is_latest()
     except: latest = None
-    utils.print(f"[bold]Currently running ImagineSuite '{utils.VERSION}'[/bold]")
+    utils.print(f"[bold]Currently running ImagineSuite '{utils.VERSION}'[/bold]", highlight=False)
 
     if latest == True: 
         utils.print("ImagineSuite is up-to-date!", level="update")
         utils.prompt_input("Press enter to continue")
     elif latest:
-        utils.print(f"ImagineSuite {latest} is available!", level="update")
+        utils.print(f"ImagineSuite {latest} is available!", level="update", highlight=False)
         confirm = utils.confirm_input("Would you like to try update ImagineSuite?")
         if not confirm: return
         utils.clear_console(console=console)
@@ -383,7 +424,7 @@ def generate_images(model, prompt, amount, additional_parameters, folder_name, t
                 if batches_completed != len(batches):  
                     utils.clear_console(console=console)
                     utils.debug(f"Waiting {loaded_config['BATCH_TIMEOUT']['value']} second(s) before continuing to the next batch to avoid rate limits.", highlight = False, level="debug", console=console)
-                    utils.debug("This value can be changed in the settings/config menu.", highlight = False, console=console)
+                    utils.debug("This value can be changed in the 'settings/config' menu.", console=console)
                     time.sleep(loaded_config['BATCH_TIMEOUT']['value'])
         
             if crtical_error_faced: break
@@ -418,6 +459,11 @@ def generate_model(model):
         time.sleep(2)
         generate_model(model)
         return
+    if len(prompt) > 5000:
+        utils.print("Prompt must be no longer than 5000 characters.", level='error', console=console)
+        time.sleep(2)
+        generate_model(model)
+        return
     utils.clear_console(console=console)
     utils.print("[bold]Base Parameters for Image Generation[/bold]", console=console)
     image_amount = utils.prompt_input(f"Enter how many images (maximum {loaded_config['MAX_IMAGES']['value']}) to generate (enter back to go back)")
@@ -441,6 +487,11 @@ def generate_model(model):
     if title == "": title = timestamp
     if len(title) < 3:
         utils.print("Title must have a length of at least 3.", level='error', console=console)
+        time.sleep(2)
+        generate_model(model)
+        return
+    if len(title) > 1000:
+        utils.print("Title must be no longer than 1000 characters.", level='error', console=console)
         time.sleep(2)
         generate_model(model)
         return
@@ -491,13 +542,12 @@ def generate_service(service_key):
     generate_model(models[int(selection)-1])
     generate_service(service_key)
 
-
 def generate_menu():
     utils.clear_console(console=console)
     available_keys = [key for key in filter(lambda x: utils.SERVICES[x]['api_key'] != None, utils.SERVICES.keys())]
     if len(available_keys) == 0:
         utils.print("[bold]No available image generation services![/bold]", level="error")
-        utils.print("Missing services can be added in the 'settings/services menu.")
+        utils.print("Missing services can be added in the 'settings/services' menu.")
         utils.prompt_input("Press enter to continue")
         return
     table = Table(title="Available Image Generation Services", title_justify="left")
@@ -514,7 +564,7 @@ def generate_menu():
     if len(available_keys) != len(utils.SERVICES.keys()): utils.print("Missing services can be added in the 'settings/services' menu.")
     selection = utils.prompt_input("Enter a number for the service you would like to use", choices=[str(x+1) for x in range(len(available_keys))] + ["back"])
     if selection == "back": return
-    generate_service(list(utils.SERVICES.keys())[int(selection)-1])
+    generate_service(available_keys[int(selection)-1])
     generate_menu()
 
 def view_generation_settings(folder_name):
@@ -546,13 +596,35 @@ def view_folder(folder_name):
             return
         else: return
     else:
-        utils.print(f"[bold]{len(images)} Image(s) found![/bold]", highlight=False)
+        utils.print(f"[bold]Generation '{folder_name}':[/bold] {len(images)} Image(s) found!", highlight=False)
     settings_exists = os.path.exists(f"{utils.GENERATIONS_FOLDER}/{folder_name}/settings.txt")
-    choices = ["open","delete","back"]
+    choices = ["open","rename","delete","back"]
     if not settings_exists: utils.print("Settings file not found!", level="warning")
     else: choices.insert(1, "settings")
     selection = utils.prompt_input(f"What would you like to do with the generation folder?", choices=choices)
-    if selection == "open": webbrowser.open(f'file:///{utils.get_working_dir_path()}/{utils.GENERATIONS_FOLDER}/{folder_name}', new=1, autoraise=True)
+    if selection == "open": webbrowser.open(f'file:///{utils.GENERATIONS_FOLDER}/{folder_name}', new=1, autoraise=True)
+    elif selection == "rename":
+        utils.clear_console(console=console)
+        folders = [folder for folder in filter(lambda x: x.count('.') == 0, os.listdir(utils.GENERATIONS_FOLDER))]
+        new_name = utils.prompt_input("Enter the new title for this generation")
+        if len(new_name) < 3:
+            utils.print("Title must have a length of at least 3.", level='error', console=console)
+            time.sleep(2)
+        elif new_name == folder_name:
+            utils.print("Title already used by this generation.", level='error', console=console)
+            time.sleep(2)
+        elif new_name in folders:
+            utils.print("Title used in another generation.", level='error', console=console)
+            time.sleep(2)
+        else:
+            try: os.rename(f"{utils.GENERATIONS_FOLDER}/{folder_name}", f"{utils.GENERATIONS_FOLDER}/{new_name}")
+            except:
+                utils.print("Failed to rename generation.", level='error', console=console)
+                time.sleep(2)
+            else:
+                utils.print("[bold]Successfully renamed generation![/bold]", level='success', console=console)
+                time.sleep(2)
+                folder_name = new_name 
     elif selection == "settings": view_generation_settings(folder_name)
     elif selection == "delete":
         utils.clear_console(console=console)
@@ -582,9 +654,10 @@ def view_menu():
     for i, folder in enumerate(folders):
         table.add_row(str(i+1), folder)
     utils.print(table, console=console)
-    selection = utils.prompt_input("Enter a number for the generation you would like to view", choices=[str(x+1) for x in range(len(folders))] + ["back"])
-    if selection == "back": return
-    view_folder(folders[int(selection)-1])
+    selection = utils.prompt_input("Enter a number for the generation you would like to view", choices=["open"] + [str(x+1) for x in range(len(folders))] + ["back"])
+    if selection == "open": webbrowser.open(f"file:///{utils.GENERATIONS_FOLDER}", new=1, autoraise=True)
+    elif selection == "back": return
+    else: view_folder(folders[int(selection)-1])
     view_menu()
 
 def home(attempt_reconnect=True):
@@ -593,6 +666,12 @@ def home(attempt_reconnect=True):
     else: utils.print("[bold]Nice to see you again![/bold] Welcome back to [bold cyan]ImagineSuite![/bold cyan]", console=console)
     choices = ["generate", "view", "settings", "restart", "quit"]
     if not utils.last_known_online: choices.insert(2, "reconnect")
+    elif utils.is_exe():
+        try: latest = utils.is_latest()
+        except: latest = None
+        if latest != True and latest != None: utils.print(f"ImagineSuite {latest} is available! Go to 'settings/app' to update!", level="update", highlight=False)
+    available_services = [key for key in filter(lambda x: utils.SERVICES[x]['api_key'] != None, utils.SERVICES.keys())]
+    if len(available_services) == 0: utils.print("No available image generation services! Missing services can be added in the 'settings/services' menu.", level="warning")
     choice = utils.prompt_input(f"What's next [bold]{utils.get_user_name()}[/bold]?", choices=["generate", "view", "settings", "restart", "quit"])
     if choice == "generate" : generate_menu()
     if choice == "view": view_menu()
@@ -609,17 +688,19 @@ def home(attempt_reconnect=True):
             utils.print("Restarting the app isn't available when running the Python script!", level="warning")
             time.sleep(2)       
     if choice == "quit":
+        utils.clear_console(console=console)
         confirm = utils.confirm_input("Are you sure you want to quit ImagineSuite")
         if confirm: return
     home()
 
 def main():
     global loaded_config, new_data
-    loaded_config, required_api_key_queue, new_data = initialise_data()
+    try: loaded_config, required_api_key_queue, new_data = initialise_data()
+    except: critical_error("Failed to Initialise ImagineSuite!")
     utils.print_header()
     if required_api_key_queue:
         utils.print("[bold]Uh oh![/bold] It looks like we're missing some required services. Let's go fix that!", level='warning', console=console)
-        with console.status("[bold green] Loading service verifier...", spinner="arc"): time.sleep(5)
+        with console.status("[bold green] Loading service verifier...", spinner="arc"): time.sleep(3)
         edit_services(required_api_key_queue)
     home(attempt_reconnect=False)
     utils.clear_console()
@@ -627,4 +708,5 @@ def main():
     utils.clear_console(header=False)
     sys.exit()
 
-main()
+try: main()
+except Exception as e: critical_error(str(e))
